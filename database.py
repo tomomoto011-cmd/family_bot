@@ -115,6 +115,22 @@ async def join_family(tg_id, code):
         return family
 
 
+async def get_family_members(family_id):
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM users WHERE family_id=$1",
+            family_id
+        )
+
+
+async def get_family_stats(family_id):
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT telegram_id, points FROM users WHERE family_id=$1 ORDER BY points DESC",
+            family_id
+        )
+
+
 async def get_random_challenge(role):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -150,7 +166,6 @@ async def complete_challenge(user_id):
         )
 
         await add_points(user_id, row["reward"])
-
         return row["reward"]
 
 
@@ -167,34 +182,6 @@ async def get_pets(family_id):
         return await conn.fetch(
             "SELECT * FROM pets WHERE family_id=$1", family_id
         )
-    async def get_family_members(family_id):
-     async with pool.acquire() as conn:
-        return await conn.fetch(
-            "SELECT * FROM users WHERE family_id=$1",
-            family_id
-        )
-
-
-async def buy_item(tg_id, cost):
-    async with pool.acquire() as conn:
-        user = await conn.fetchrow(
-            "SELECT points FROM users WHERE telegram_id=$1",
-            tg_id
-        )
-
-        if user["points"] < cost:
-            return False
-
-        await conn.execute(
-            "UPDATE users SET points = points - $1 WHERE telegram_id=$2",
-            cost, tg_id
-        )
-        async def get_family_stats(family_id):
-         async with pool.acquire() as conn:
-          return await conn.fetch(
-            "SELECT telegram_id, points FROM users WHERE family_id=$1 ORDER BY points DESC",
-            family_id
-        )
 
 
 async def get_active_challenges():
@@ -203,5 +190,3 @@ async def get_active_challenges():
         SELECT user_id FROM user_challenges
         WHERE completed=FALSE
         """)
-
-        
