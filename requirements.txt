@@ -1,4 +1,16 @@
+# Core
 aiogram==3.4.1
-python-dotenv
+python-dotenv==1.0.1
+
+# Database
 asyncpg==0.29.0
-httpx
+
+# Web server (для health checks)
+fastapi==0.115.4
+uvicorn==0.32.0
+
+# HTTP client
+httpx==0.27.0
+
+# AI (опционально, если нужно)
+google-generativeai==0.8.3
