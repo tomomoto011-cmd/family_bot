@@ -1,21 +1,19 @@
+# handlers/psycho.py
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from config import logger
-from database import set_psycho_mode, is_psycho_mode
 
-# Импортируй свой AI модуль
-try:
-    from services.ai import answer as ai_answer
-except ImportError:
-    async def ai_answer(text):
-        return "🤖 AI временно недоступен. Я всё ещё здесь, чтобы выслушать тебя 💙"
+from config import logger
+from database import set_psycho_mode, is_psycho_mode, get_user
+from services.ai_router import generate
 
 router = Router()
 
 class PsychoMode(StatesGroup):
+    """Состояния психо-режима"""
     active = State()
+    clarifying = State()  # для уточняющих вопросов (можно расширить)
 
 @router.message(F.text == "🧠 Психолог")
 async def start_psycho(message: Message, state: FSMContext):
@@ -25,25 +23,52 @@ async def start_psycho(message: Message, state: FSMContext):
     
     await message.answer(
         "🧠 *Режим психолога активирован*\n\n"
-        "Я здесь, чтобы выслушать тебя. "
+        "Я здесь, чтобы выслушать тебя без осуждения. "
         "Пиши всё, что чувствуешь — я поддержу 💙\n\n"
-        "Чтобы выйти, нажми /menu или кнопку ниже",
+        "*Чтобы выйти:* нажми /menu или кнопку ниже",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔚 Выйти из режима", callback_data="psycho_exit")]
+        ]),
         parse_mode="Markdown"
     )
+    logger.info(f"🧠 Psycho mode ON for {message.from_user.id}")
 
-@router.message(PsychoMode.active)
-async def psycho_chat(message: Message):
+@router.message(PsychoMode.active, F.text != "🗣 Высказаться")
+async def psycho_chat(message: Message, state: FSMContext):
     """Обработка сообщений в психо-режиме"""
     try:
         # Показываем "печатает..."
         await message.chat.action("typing")
         
-        # Получаем ответ от AI
-        response = await ai_answer(message.text)
+        # Получаем контекст пользователя
+        user = await get_user(message.from_user.id)
+        user_name = user.get("first_name") if user else None
+        user_role = user.get("role") if user else "user"
+        
+        # Системный промпт с контекстом
+        system_prompt = (
+            f"Ты — эмпатичный семейный психолог-бот. "
+            f"Пользователь: {user_role}. "
+            f"Твоя задача: выслушать, поддержать, задать уточняющий вопрос если нужно. "
+            f"НЕ давай прямых советов 'сделай то-то'. "
+            f"Используй 'Я-сообщения' и валидацию чувств. "
+            f"Будь тёплым, но не навязчивым. Ответь на русском."
+        )
+        
+        # Генерируем ответ через AI router
+        response = await generate(
+            prompt=message.text,
+            system=system_prompt,
+            task_type="psycho",
+            user_name=user_name
+        )
         
         await message.answer(
             response,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔚 Выйти", callback_data="psycho_exit")]
+            ])
         )
         
     except Exception as e:
@@ -56,22 +81,24 @@ async def psycho_chat(message: Message):
         )
 
 @router.message(F.text == "🗣 Высказаться")
-async def exit_psycho(message: Message, state: FSMContext):
-    """Выход из психо-режима"""
-    await state.clear()
-    await set_psycho_mode(message.from_user.id, False)
+@router.callback_query(F.data == "psycho_exit")
+async def exit_psycho(event: Message | CallbackQuery, state: FSMContext):
+    """Выход из психо-режима (универсальный хендлер)"""
+    user_id = event.from_user.id if hasattr(event, 'from_user') else event.message.from_user.id
     
-    await message.answer(
+    await state.clear()
+    await set_psycho_mode(user_id, False)
+    
+    response_text = (
         "👋 *Обычный режим*\n\n"
         "Если понадобишься поддержка — я всегда рядом. "
-        "Просто нажми 🧠 Психолог",
-        parse_mode="Markdown"
+        "Просто нажми 🧠 Психолог"
     )
-
-@router.callback_query(F.data == "psycho_exit")
-async def psycho_exit_callback(callback: CallbackQuery, state: FSMContext):
-    """Выход через inline-кнопку"""
-    await state.clear()
-    await set_psycho_mode(callback.from_user.id, False)
-    await callback.message.edit_text("👋 Вышел из режима психолога")
-    await callback.answer()
+    
+    if isinstance(event, CallbackQuery):
+        await event.message.edit_text(response_text, parse_mode="Markdown")
+        await event.answer()
+    else:
+        await event.answer(response_text, parse_mode="Markdown")
+    
+    logger.info(f"🧠 Psycho mode OFF for {user_id}")
