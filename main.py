@@ -1,78 +1,36 @@
-# === ИМПОРТЫ ===
+# main.py — ЧИСТЫЙ POLLING, БЕЗ FASTAPI
 import asyncio
 import logging
-import os
 import sys
-from contextlib import asynccontextmanager
-
-# FastAPI
-from fastapi import FastAPI
-import uvicorn
-
-# Aiogram
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# Наши конфиги
-from config import BOT_TOKEN, DATABASE_URL, GEMINI_API_KEY, ADMIN_CHAT_ID, logger
+# Конфиги
+from config import BOT_TOKEN, ADMIN_CHAT_ID, logger
 
 # БД
-from database import connect, create_tables, create_user, get_pool
+from database import connect, create_tables, create_user, set_role
 
-# === ПРЯМЫЕ ИМПОРТЫ (без зависимостей от __init__.py) ===
-# Клавиатуры (из handlers)
+# Хендлеры (прямые импорты)
 from handlers.keyboards import main_menu, role_keyboard
-
-# Роутеры (из handlers)
 from handlers.psycho import router as psycho_router
 from handlers.challenges import router as challenges_router
 from handlers.family import router as family_router
 
-# AI сервис
-from services.ai_router import generate
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    stream=sys.stdout
+)
 
-# === FASTAPI LIFESPAN ===
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Инициализация при старте"""
-    logger.info("🔄 Инициализация...")
-    await connect()
-    await create_tables()
-    logger.info("✅ БД подключена")
-    yield
-    """Очистка при остановке"""
-    logger.info("🛑 Завершение работы...")
-    pool = await get_pool()
-    if pool:
-        await pool.close()
-
-# === FASTAPI APP ===
-app = FastAPI(lifespan=lifespan)
-
-@app.get("/health")
-async def health_check():
-    """Health check для Render/Railway"""
-    try:
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            await conn.fetchval("SELECT 1")
-        return {"status": "healthy", "bot": "running", "db": "connected"}
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return {"status": "unhealthy", "error": str(e)}
-
-@app.get("/")
-async def root():
-    return {"message": "FamilyBot is running 🤖"}
-
-# === AIOGRAM SETUP ===
-storage = MemoryStorage()
+# Создаём бота и диспетчер
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=storage)
+dp = Dispatcher(storage=MemoryStorage())
 
-# Подключаем ВСЕ роутеры
+# Подключаем роутеры
 dp.include_router(psycho_router)
 dp.include_router(challenges_router)
 dp.include_router(family_router)
@@ -81,119 +39,69 @@ dp.include_router(family_router)
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
-    """Команда /start"""
+    logger.info(f"📨 /start от {message.from_user.id}")
     try:
         await create_user(message.from_user.id, message.from_user.username)
         await message.answer(
-            f"👋 *Добро пожаловать, {message.from_user.first_name}!*\n\n"
-            "Я — семейный бот-помощник.\n"
-            "Выбери роль, чтобы начать:",
-            reply_markup=keyboards.role_keyboard(),
+            f"👋 *Привет, {message.from_user.first_name}!*\nВыбери роль:",
+            reply_markup=role_keyboard(),
             parse_mode="Markdown"
         )
-        logger.info(f"✅ Новый пользователь: {message.from_user.id}")
     except Exception as e:
         logger.error(f"Start error: {e}")
-        await message.answer("⚠️ Произошла ошибка. Попробуй позже")
+        await message.answer("⚠️ Ошибка")
 
 @dp.message(Command("menu"))
 async def cmd_menu(message: Message):
-    """Команда /menu"""
-    await message.answer(
-        "📋 *Главное меню*",
-        reply_markup=keyboards.main_menu(),
-        parse_mode="Markdown"
-    )
-
-@dp.message(Command("help"))
-async def cmd_help(message: Message):
-    """Команда /help"""
-    help_text = (
-        "📖 *Помощь*\n\n"
-        "*Команды:*\n"
-        "/start — начать работу\n"
-        "/menu — показать меню\n"
-        "/help — эта справка\n\n"
-        "*Функции:*\n"
-        "🧠 Психолог — поддержка и эмпатия\n"
-        "🎯 Челлендж — задания и очки\n"
-        "👨‍👩‍👧 Семья — управление семьёй\n"
-        "💰 Баланс — твои очки и уровень\n"
-        "🐶 Питомцы — семейные питомцы"
-    )
-    await message.answer(help_text, parse_mode="Markdown")
-
-# === ОБРАБОТКА ВЫБОРА РОЛИ ===
+    await message.answer("📋 *Меню*:", reply_markup=main_menu(), parse_mode="Markdown")
 
 @dp.message(F.text.in_({"Родитель", "Ребёнок", "Друг семьи"}))
 async def set_role_handler(message: Message):
-    """Установка роли пользователя"""
     try:
-        from database import set_role
-        
-        role_map = {
-            "Родитель": "parent",
-            "Ребёнок": "child", 
-            "Друг семьи": "friend"
-        }
-        
-        role_text = message.text
-        role_code = role_map[role_text]
-        
-        await set_role(message.from_user.id, role_code)
-        
-        await message.answer(
-            f"✅ *Роль установлена: {role_text}*\n\n"
-            "Теперь доступно главное меню!",
-            reply_markup=keyboards.main_menu(),
-            parse_mode="Markdown"
-        )
-        logger.info(f"✅ Роль {role_code} установлена для {message.from_user.id}")
-        
+        role_map = {"Родитель": "parent", "Ребёнок": "child", "Друг семьи": "friend"}
+        await set_role(message.from_user.id, role_map[message.text])
+        await message.answer(f"✅ Роль: {message.text}", reply_markup=main_menu())
     except Exception as e:
-        logger.error(f"Set role error: {e}")
-        await message.answer("⚠️ Произошла ошибка. Попробуй позже")
+        logger.error(f"Role error: {e}")
+        await message.answer("⚠️ Ошибка")
 
-# === ЗАПУСК: ПОЛЛИНГ + FASTAPI ===
+# === ОТЛАДКА: Ловим ВСЕ сообщения ===
+@dp.message()
+async def debug_catch_all(message: Message):
+    logger.info(f"📨 Catch-all: '{message.text}' от {message.from_user.id}")
 
-async def start_polling_task():
-    """Задача для запуска aiogram polling"""
-    logger.info("🤖 Запуск aiogram polling...")
-    try:
-        await dp.start_polling(bot)
-    except Exception as e:
-        logger.critical(f"💥 Polling crashed: {e}")
-        raise
-
-async def start_web_task():
-    """Задача для запуска uvicorn server"""
-    port = int(os.environ.get("PORT", 8000))
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
-    server = uvicorn.Server(config)
-    logger.info(f"🌐 Запуск health server на порту {port}")
-    await server.serve()
+# === ЗАПУСК ===
 
 async def main():
-    """Точка входа: запускаем оба сервера параллельно"""
-    # Отправляем алерт админу
-    if ADMIN_CHAT_ID:
-        try:
-            await bot.send_message(ADMIN_CHAT_ID, "✅ FamilyBot запустился!")
-        except:
-            pass
-    
-    # Запускаем polling и web server параллельно
-    await asyncio.gather(
-        start_polling_task(),
-        start_web_task()
-    )
+    try:
+        logger.info("🔄 Подключение к БД...")
+        await connect()
+        await create_tables()
+        logger.info("✅ БД готова")
+        
+        logger.info("🔄 Проверка токена бота...")
+        me = await bot.get_me()
+        logger.info(f"✅ Бот авторизован: @{me.username} (ID: {me.id})")
+        
+        if ADMIN_CHAT_ID:
+            try:
+                await bot.send_message(ADMIN_CHAT_ID, f"✅ @{me.username} запустился!")
+            except:
+                pass
+        
+        logger.info("🤖 === ЗАПУСК ПОЛЛИНГА ===")
+        await dp.start_polling(bot)
+        
+    except Exception as e:
+        logger.critical(f"💥 FATAL ERROR: {e}", exc_info=True)
+        raise
+    finally:
+        await bot.session.close()
+        logger.info("🔚 Сессия закрыта")
 
 if __name__ == "__main__":
-    logger.info("🚀 FamilyBot v1.0 starting...")
+    logger.info("🚀 FamilyBot starting (polling mode)...")
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("👋 Остановка по сигналу")
-    except Exception as e:
-        logger.critical(f"💥 FATAL: {e}")
-        sys.exit(1)
+        logger.info("👋 Остановка")
