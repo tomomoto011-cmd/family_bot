@@ -1,3 +1,4 @@
+# handlers/family.py
 from aiogram import Router, F
 from aiogram.types import Message
 import random
@@ -7,12 +8,12 @@ from database import get_user, create_family, join_family, get_pets, add_pet, ge
 
 router = Router()
 
-@router.message(F.text == "👨‍‍👧 Семья")
+# 🔧 FIX: endswith вместо == (эмодзи в Telegram могут иметь разную кодировку)
+@router.message(F.text.endswith("Семья"))
 async def family_menu(m: Message):
     user = await get_user(m.from_user.id)
     
     if user and user.get("family_id"):
-        # Пользователь уже в семье — показываем инфо
         members = await get_family_members(user["family_id"])
         
         member_list = "\n".join([
@@ -31,7 +32,6 @@ async def family_menu(m: Message):
             parse_mode="Markdown"
         )
     else:
-        # Пользователь не в семье — показываем меню
         await m.answer(
             "👨‍👧 *Семья*\n\n"
             "Выбери действие:\n"
@@ -61,7 +61,6 @@ async def create_family_handler(m: Message):
             parse_mode="Markdown"
         )
         
-        # Сразу показываем выбор роли
         from handlers.keyboards import role_keyboard
         await m.answer("Кто ты в семье?", reply_markup=role_keyboard())
         
@@ -91,7 +90,6 @@ async def join_family_handler(m: Message):
                 parse_mode="Markdown"
             )
             
-            # Сразу показываем выбор роли
             from handlers.keyboards import role_keyboard
             await m.answer("Кто ты в семье?", reply_markup=role_keyboard())
             
@@ -107,7 +105,8 @@ async def join_family_handler(m: Message):
         logger.error(f"Join family error: {e}")
         await m.answer("⚠️ Произошла ошибка. Попробуй позже")
 
-@router.message(F.text == "🐶 Питомцы")
+# 🔧 FIX: endswith вместо ==
+@router.message(F.text.endswith("Питомцы"))
 async def pets_handler(m: Message):
     try:
         user = await get_user(m.from_user.id)
@@ -164,7 +163,8 @@ async def add_pet_handler(m: Message):
         logger.error(f"Add pet error: {e}")
         await m.answer("⚠️ Произошла ошибка. Попробуй позже")
 
-@router.message(F.text == "📊 Статистика")
+# 🔧 FIX: endswith вместо ==
+@router.message(F.text.endswith("Статистика"))
 async def stats_handler(m: Message):
     try:
         user = await get_user(m.from_user.id)
