@@ -19,24 +19,32 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# === РЕГИСТРИРУЕМ РОУТЕРЫ (их хендлеры будут ПЕРВЫМИ) ===
+# === РЕГИСТРАЦИЯ РОУТЕРОВ ===
 dp.include_router(psycho_r)
 dp.include_router(chal_r)
 dp.include_router(fam_r)
+
+# === ЛОГИРОВАНИЕ ВСЕХ СООБЩЕНИЙ ===
+@dp.message()
+async def log_all_messages(m: Message):
+    logger.info(f"📨 [{m.from_user.username or m.from_user.id}]: '{m.text}'")
 
 # === ОБЩИЕ ХЕНДЛЕРЫ ===
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
+    logger.info(f"📥 /start от {m.from_user.id}")
     await create_user(m.from_user.id, m.from_user.username)
     await m.answer(f"👋 *Привет, {m.from_user.first_name}!*\nВыбери роль:", reply_markup=role_keyboard(), parse_mode="Markdown")
 
 @dp.message(Command("menu"))
 async def cmd_menu(m: Message):
+    logger.info(f"📥 /menu от {m.from_user.id}")
     await m.answer("📋 *Меню*:", reply_markup=main_menu(), parse_mode="Markdown")
 
 @dp.message(F.text.in_({"Родитель", "Ребёнок", "Друг семьи"}))
 async def set_role_h(m: Message):
+    logger.info(f"📥 Роль: {m.text}")
     await set_role(m.from_user.id, {"Родитель":"parent","Ребёнок":"child","Друг семьи":"friend"}[m.text])
     await m.answer(f"✅ Роль: {m.text}", reply_markup=main_menu())
 
