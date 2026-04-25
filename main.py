@@ -4,7 +4,7 @@ import logging
 import sys
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import BOT_TOKEN, ADMIN_CHAT_ID, logger
@@ -19,10 +19,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# === ВАЖНО: Сначала подключаем роутеры (их хендлеры будут ПЕРВЫМИ) ===
+# === ВАЖНО: Сначала подключаем роутеры ===
 dp.include_router(psycho_r)
 dp.include_router(chal_r)
 dp.include_router(fam_r)
+
+# === ОБРАБОТКА CALLBACK_QUERY (ИНЛАЙНЫ) ===
+@dp.callback_query()
+async def handle_all_callbacks(c: CallbackQuery):
+    """Ловим все callback'и для отладки"""
+    logger.info(f"🔘 Callback: {c.data} от {c.from_user.id}")
+    # Если ни один роутер не обработал — отвечаем
+    await c.answer("⚠️ Кнопка в разработке", show_alert=False)
 
 # === ОБЩИЕ ХЕНДЛЕРЫ ===
 
