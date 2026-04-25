@@ -1,85 +1,164 @@
-import asyncio
+# services/ai_router.py
+"""
+Локальный эмпатичный AI-движок (без внешних API)
+Работает на правилах + ключевых словах + шаблонах
+Всегда доступен, мгновенный ответ, 100% стабильность
+"""
+
 import random
-import logging
-from config import GEMINI_API_KEY, logger
+import re
+from config import logger
 
-# === GEMINI SETUP ===
-try:
-    import google.generativeai as genai
-    
-    if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        _gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-        GEMINI_AVAILABLE = True
-        logger.info("✅ Gemini AI подключён")
-    else:
-        GEMINI_AVAILABLE = False
-        logger.warning("⚠️ GEMINI_API_KEY не задан, использую fallback")
-except ImportError:
-    GEMINI_AVAILABLE = False
-    logger.warning("⚠️ google-generativeai не установлен, использую fallback")
+# === БАЗА ОТВЕТОВ ПО КАТЕГОРИЯМ ===
 
-# === FALLBACK RESPONSES ===
-FALLBACK_RESPONSES = {
-    "psycho": [
-        "Понимаю тебя. Иногда просто нужно выговориться. Я рядом. 💙",
-        "Это сложная ситуация. Давай разберём: что случилось, что ты чувствуешь, что хочешь изменить?",
-        "Твои чувства важны. Что бы ты хотел сделать прямо сейчас?",
-        "Иногда лучший шаг — пауза. Подыши глубоко. Я здесь, когда будешь готов.",
-        "Спасибо, что поделился. Ты не один. Я поддерживаю тебя. 🤝"
+PSYCHO_RESPONSES = {
+    # Эмоции
+    "груст": [
+        "Понимаю, иногда бывает тяжело. Ты не один. 💙",
+        "Грусть — это нормально. Дай себе время. Я рядом.",
+        "Хочешь рассказать, что именно тебя расстроило?"
     ],
-    "challenge": [
-        "Отлично! Маленький шаг — это уже победа. 🎯",
-        "Горжусь тобой! Продолжай в том же духе. 💪",
-        "Каждый день — новая возможность. Ты справишься! ✨",
-        "Молодец! Так держать! 🔥"
+    "зл": [
+        "Злость — это сигнал, что что-то важно для тебя. Давай разберёмся?",
+        "Понимаю твою злость. Что можно сделать, чтобы стало легче?",
+        "Иногда нужно просто выдохнуть. Я слушаю тебя."
     ],
-    "default": [
-        "Спасибо, что поделился. Я здесь, чтобы помочь. 🤝",
-        "Понял. Давай подумаем, как можно решить это вместе.",
-        "Хороший вопрос. Давай разберёмся."
+    "тревог": [
+        "Тревога часто говорит о заботе о будущем. Давай подумаем, что в твоей власти сейчас?",
+        "Понимаю беспокойство. Что самое страшное может случиться? И как к этому подготовиться?",
+        "Дыши. Ты уже справлялся с трудностями. Справишься и сейчас. 💪"
+    ],
+    "устал": [
+        "Усталость — знак, что нужно отдохнуть. Это не слабость, это забота о себе.",
+        "Ты много делаешь. Разрешаешь себе паузу?",
+        "Иногда лучший шаг — остановиться и передохнуть. Я поддержу."
+    ],
+    "обид": [
+        "Обида — это боль от ожидания. Хочешь рассказать, что произошло?",
+        "Понимаю, когда близкие ранят. Это больно. Я рядом.",
+        "Твои чувства важны. Что бы ты хотел сказать этому человеку, если бы он слушал?"
+    ],
+    # Поддержка
+    "помоги": [
+        "Я здесь. Расскажи подробнее, что случилось — вместе подумаем.",
+        "Готов выслушать. Что именно тебя беспокоит?",
+        "Давай разберём по шагам: что произошло, что ты чувствуешь, что хочешь изменить?"
+    ],
+    "не знаю": [
+        "Это нормально — не знать сразу. Давай подумаем вместе.",
+        "Иногда ответ приходит, когда просто говоришь вслух. Я слушаю.",
+        "Не обязательно иметь все ответы сейчас. Главное — ты ищешь."
+    ],
+    # Общие
+    "поговорить": [
+        "Всегда готов выслушать. Что у тебя на душе?",
+        "Рассказывай. Я здесь, чтобы поддержать. 💙",
+        "Иногда просто проговорить — уже становится легче. Я слушаю."
+    ],
+    "спасибо": [
+        "Всегда рад помочь. Ты важен. 🤝",
+        "Спасибо, что доверяешь. Я рядом, если понадобишься.",
+        "Ты молодец, что ищешь поддержку. Это уже шаг вперёд."
     ]
 }
 
-async def fallback_generate(prompt: str, system: str = "", task_type: str = "default", **kwargs) -> str:
-    """Генерация через шаблоны (когда AI недоступен)"""
-    templates = FALLBACK_RESPONSES.get(task_type, FALLBACK_RESPONSES["default"])
-    base = random.choice(templates)
-    
-    if kwargs.get("user_name"):
-        base = f"{kwargs['user_name']}, {base}"
-    
-    return base + "\n\n_⚠️ AI временно недоступен, но я всё ещё здесь._"
+CHALLENGE_RESPONSES = {
+    "выполнил": [
+        "🎉 Отличная работа! Каждый шаг — это победа.",
+        "Горжусь тобой! Так держать! 💪",
+        "Маленькие шаги ведут к большим результатам. Ты справишься!"
+    ],
+    "сложно": [
+        "Понимаю, бывает непросто. Может, разбить задачу на части?",
+        "Сложно — не значит невозможно. Что именно вызывает трудности?",
+        "Ты уже начал — это главное. Дальше будет легче."
+    ],
+    "не хочу": [
+        "Понимаю, не всегда есть силы. Может, начать с малого?",
+        "Иногда нужно просто разрешить себе не хотеть. Это нормально.",
+        "Что если попробовать чуть-чуть? Даже 5 минут — уже прогресс."
+    ],
+    "готово": [
+        "✅ Супер! Отмечаю выполнение. Ты молодец!",
+        "🎯 Цель достигнута! Горжусь твоим упорством.",
+        "Отлично! Это был важный шаг. Что дальше?"
+    ]
+}
 
-async def gemini_generate(prompt: str, system: str = "", **kwargs) -> str:
-    """Генерация через Gemini"""
-    if not GEMINI_AVAILABLE:
-        raise RuntimeError("Gemini not available")
+DEFAULT_RESPONSES = [
+    "Понимаю тебя. Расскажи ещё, если хочешь. 💙",
+    "Спасибо, что поделился. Я здесь, чтобы поддержать.",
+    "Твои чувства важны. Я слушаю.",
+    "Иногда просто нужно выговориться. Я рядом.",
+    "Ты не один. Я с тобой."
+]
+
+# === ФУНКЦИИ АНАЛИЗА ===
+
+def detect_intent(text: str) -> tuple[str, str]:
+    """
+    Определяет категорию и эмоцию по тексту.
+    Возвращает: (category, keyword)
+    """
+    text_lower = text.lower()
     
-    full_prompt = f"{system}\n\nUSER: {prompt}\nASSISTANT:" if system else prompt
+    # Психо-режим
+    for keyword, responses in PSYCHO_RESPONSES.items():
+        if keyword in text_lower:
+            return "psycho", keyword
     
-    try:
-        response = await asyncio.to_thread(
-            _gemini_model.generate_content,
-            full_prompt,
-            safety_settings={
-                "HARASSMENT": "BLOCK_MEDIUM_AND_ABOVE",
-                "SEXUAL": "BLOCK_MEDIUM_AND_ABOVE",
-                "HATE_SPEECH": "BLOCK_MEDIUM_AND_ABOVE"
-            }
-        )
-        return response.text.strip()
-    except Exception as e:
-        raise RuntimeError(f"Gemini error: {e}")
+    # Челленджи
+    for keyword, responses in CHALLENGE_RESPONSES.items():
+        if keyword in text_lower:
+            return "challenge", keyword
+    
+    return "default", None
+
+def generate_response(text: str, task_type: str = "default", **kwargs) -> str:
+    """
+    Генерация ответа на основе правил.
+    
+    Args:
+        text: Сообщение пользователя
+        task_type: psycho / challenge / default
+        **kwargs: user_name, context и т.д.
+    
+    Returns:
+        Строка с ответом
+    """
+    category, keyword = detect_intent(text)
+    
+    # Выбираем базу ответов
+    if category == "psycho" and keyword:
+        candidates = PSYCHO_RESPONSES.get(keyword, DEFAULT_RESPONSES)
+    elif category == "challenge" and keyword:
+        candidates = CHALLENGE_RESPONSES.get(keyword, DEFAULT_RESPONSES)
+    else:
+        candidates = DEFAULT_RESPONSES
+    
+    # Выбираем случайный ответ из подходящих
+    base_response = random.choice(candidates)
+    
+    # Добавляем персонализацию
+    if kwargs.get("user_name"):
+        base_response = f"{kwargs['user_name']}, {base_response}"
+    
+    return base_response
+
+# === ПУБЛИЧНЫЙ ИНТЕРФЕЙС (совместим с предыдущим кодом) ===
 
 async def generate(prompt: str, system: str = "", task_type: str = "default", **kwargs) -> str:
     """
-    Умный роутер: пробует Gemini, при ошибке — fallback.
+    Единая точка входа для генерации ответов.
+    Совместима с предыдущим кодом — ничего менять не нужно!
     """
-    if GEMINI_AVAILABLE:
-        try:
-            return await gemini_generate(prompt, system, **kwargs)
-        except Exception as e:
-            logger.warning(f"⚠️ Gemini failed: {e}. Using fallback.")
+    # Игнорируем system prompt (он был для Gemini), но логируем для отладки
+    if system and logger.level <= 10:  # DEBUG
+        logger.debug(f"🧠 System prompt: {system[:100]}...")
     
-    return await fallback_generate(prompt, system, task_type, **kwargs)
+    response = generate_response(prompt, task_type, **kwargs)
+    
+    # Логируем для анализа (можно отключить в продакшене)
+    logger.info(f"🤖 AI ответ: {response[:50]}...")
+    
+    return response
