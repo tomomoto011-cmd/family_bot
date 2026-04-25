@@ -75,8 +75,8 @@ async def get_family_stats(fid):
 
 # --- CHALLENGES ---
 async def get_random_challenge(role):
-    async with pool.acquire() as c:
-        rows = await c.fetch("SELECT * FROM challenges WHERE role=$1 AND is_active=TRUE", role)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM challenges WHERE role=$1 ORDER BY RANDOM() LIMIT 5", role)
         return random.choice(rows) if rows else None
 async def assign_challenge(uid, cid):
     async with pool.acquire() as c:

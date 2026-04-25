@@ -28,19 +28,6 @@ async def get_challenge(m: Message):
             )
             return
         
-        # Проверяем, не выполнял ли уже сегодня
-        from database import pool
-        async with pool.acquire() as conn:
-            exists = await conn.fetchval(
-                """SELECT id FROM user_challenges 
-                   WHERE user_id=$1 AND challenge_id=$2 AND DATE(created_at) = CURRENT_DATE""",
-                m.from_user.id, challenge["id"]
-            )
-        
-        if exists:
-            await m.answer("✅ Ты уже выполнял этот челлендж сегодня! Отдохни 🌟")
-            return
-        
         await assign_challenge(m.from_user.id, challenge["id"])
         
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -68,10 +55,8 @@ async def complete_challenge_cb(c: CallbackQuery):
         reward = await complete_challenge(c.from_user.id)
         
         if reward:
-            # Получаем новый баланс
             new_balance = await get_balance(c.from_user.id)
             
-            # Определяем уровень
             if new_balance < 50:
                 level = "🌱 Новичок"
             elif new_balance < 150:
@@ -125,7 +110,6 @@ async def show_balance(m: Message):
     try:
         points = await get_balance(m.from_user.id)
         
-        # Определяем уровень
         if points < 50:
             level = "🌱 Новичок"
             next_level = "🔥 Активист (50 очков)"
@@ -134,7 +118,7 @@ async def show_balance(m: Message):
             next_level = "🏆 Лидер (150 очков)"
         else:
             level = "🏆 Лидер"
-            next_level = " Легенда (300 очков)"
+            next_level = "🌟 Легенда (300 очков)"
         
         await m.answer(
             f"💰 *Твой баланс*\n\n"
@@ -148,49 +132,3 @@ async def show_balance(m: Message):
     except Exception as e:
         logger.error(f"Balance error: {e}")
         await m.answer("⚠️ Произошла ошибка. Попробуй позже")
-
-@router.message(F.text == "🎁 Дать очки")
-async def give_points_prompt(m: Message):
-    user = await get_user(m.from_user.id)
-    if user.get("role") != "parent":
-        await m.answer("🔒 Эта команда доступна только родителям")
-        return
-    
-    await m.answer(
-        "🎁 *Начисление очков*\n\n"
-        "Формат: `Дать очки [число]`\n"
-        "Пример: `Дать очки 10`\n\n"
-        "⚠️ Доступно только родителям",
-        parse_mode="Markdown"
-    )
-
-@router.message(F.text.startswith("дать очки"))
-async def give_points_handler(m: Message):
-    try:
-        user = await get_user(m.from_user.id)
-        if user.get("role") != "parent":
-            await m.answer("🔒 Только для родителей")
-            return
-        
-        parts = m.text.split()
-        if len(parts) != 3:
-            await m.answer("❌ Формат: `Дать очки 10`")
-            return
-        
-        try:
-            amount = int(parts[2])
-            if amount < 0 or amount > 1000:
-                await m.answer("❌ Сумма должна быть от 0 до 1000")
-                return
-            
-            await add_points(m.from_user.id, amount)
-            new_bal = await get_balance(m.from_user.id)
-            await m.answer(f"✅ +{amount} очков начислено!\nНовый баланс: {new_bal}")
-            logger.info(f"💰 {amount} points to {m.from_user.id}")
-            
-        except ValueError:
-            await m.answer("❌ Укажи число, например: `Дать очки 10`")
-            
-    except Exception as e:
-        logger.error(f"Give points error: {e}")
-        await m.answer("⚠️ Ошибка")

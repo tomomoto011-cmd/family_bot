@@ -7,8 +7,9 @@ from database import get_user, create_family, join_family, get_pets, add_pet, ge
 
 router = Router()
 
-@router.message(F.text == "👨‍👩‍ Семья")
+@router.message(F.text == "👨‍👩‍👧 Семья")
 async def family_menu(m: Message):
+    logger.info(f"👨‍‍👧 Family button clicked by {m.from_user.id}")
     user = await get_user(m.from_user.id)
     
     if user and user.get("family_id"):
@@ -16,8 +17,7 @@ async def family_menu(m: Message):
             "👨‍‍👧 *Твоя семья*\n\n"
             "Ты уже в семье! Доступные команды:\n"
             "• `/питомцы` — показать питомцев\n"
-            "• `/статистика` — рейтинг семьи\n"
-            "• `Создать семья [название]` — создать новую (если хочешь выйти)",
+            "• `/статистика` — рейтинг семьи",
             parse_mode="Markdown"
         )
     else:
@@ -29,6 +29,8 @@ async def family_menu(m: Message):
             "Пример: `Создать семья Ивановы`",
             parse_mode="Markdown"
         )
+
+# ... остальные функции без изменений ...
 
 @router.message(F.text.startswith("Создать семья"))
 async def create_family_handler(m: Message):
