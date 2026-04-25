@@ -3,24 +3,35 @@ from aiogram.types import Message
 import random
 import string
 from config import logger
-from database import get_user, create_family, join_family, get_pets, add_pet, get_family_stats
+from database import get_user, create_family, join_family, get_pets, add_pet, get_family_stats, get_family_members, set_role
 
 router = Router()
 
-@router.message(F.text == "👨‍👩‍👧 Семья")
+@router.message(F.text == "👨‍‍👧 Семья")
 async def family_menu(m: Message):
-    logger.info(f"👨‍‍👧 Family button clicked by {m.from_user.id}")
     user = await get_user(m.from_user.id)
     
     if user and user.get("family_id"):
+        # Пользователь уже в семье — показываем инфо
+        members = await get_family_members(user["family_id"])
+        
+        member_list = "\n".join([
+            f"• {mbr.get('username') or mbr.get('telegram_id')} — {mbr.get('role', 'участник')} ({mbr.get('points', 0)} очков)"
+            for mbr in members
+        ])
+        
         await m.answer(
-            "👨‍‍👧 *Твоя семья*\n\n"
-            "Ты уже в семье! Доступные команды:\n"
-            "• `/питомцы` — показать питомцев\n"
-            "• `/статистика` — рейтинг семьи",
+            f"👨‍‍👧 *Твоя семья*\n\n"
+            f"Участники:\n{member_list}\n\n"
+            f"Всего: {len(members)} человек\n\n"
+            f"Команды:\n"
+            f"• `/питомцы` — показать питомцев\n"
+            f"• `/статистика` — рейтинг семьи\n"
+            f"• `/меню` — главное меню",
             parse_mode="Markdown"
         )
     else:
+        # Пользователь не в семье — показываем меню
         await m.answer(
             "👨‍👧 *Семья*\n\n"
             "Выбери действие:\n"
@@ -29,8 +40,6 @@ async def family_menu(m: Message):
             "Пример: `Создать семья Ивановы`",
             parse_mode="Markdown"
         )
-
-# ... остальные функции без изменений ...
 
 @router.message(F.text.startswith("Создать семья"))
 async def create_family_handler(m: Message):
@@ -41,19 +50,22 @@ async def create_family_handler(m: Message):
             await m.answer("⚠️ Название слишком короткое")
             return
         
-        # Генерируем безопасный код
         code = "FAM-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        
         family = await create_family(name, code)
         
         await m.answer(
             f"✅ *Семья создана!*\n\n"
             f"Название: **{name}**\n"
             f"🔑 Код для входа: `{code}`\n\n"
-            "Отправь этот код близким, чтобы они присоединились",
+            "Теперь выбери свою роль:",
             parse_mode="Markdown"
         )
-        logger.info(f"👨‍👩‍ Family '{name}' created by {m.from_user.id}")
+        
+        # Сразу показываем выбор роли
+        from handlers.keyboards import role_keyboard
+        await m.answer("Кто ты в семье?", reply_markup=role_keyboard())
+        
+        logger.info(f"👨‍👩‍👧 Family '{name}' created by {m.from_user.id}")
         
     except Exception as e:
         logger.error(f"Create family error: {e}")
@@ -75,10 +87,15 @@ async def join_family_handler(m: Message):
                 f"✅ *Ты в семье!*\n\n"
                 f"Семья: **{family['name']}**\n"
                 f"Код: `{family['code']}`\n\n"
-                "Теперь ты можешь участвовать в семейных челленджах!",
+                "Теперь выбери свою роль:",
                 parse_mode="Markdown"
             )
-            logger.info(f"👨‍‍👧 User {m.from_user.id} joined family {family['id']}")
+            
+            # Сразу показываем выбор роли
+            from handlers.keyboards import role_keyboard
+            await m.answer("Кто ты в семье?", reply_markup=role_keyboard())
+            
+            logger.info(f"👨‍👧 User {m.from_user.id} joined family {family['id']}")
         else:
             await m.answer(
                 "❌ *Семья не найдена*\n\n"
@@ -98,7 +115,7 @@ async def pets_handler(m: Message):
         if not user or not user.get("family_id"):
             await m.answer(
                 "⚠️ *Сначала вступи в семью!*\n"
-                "Нажми 👨‍👧 Семья",
+                "Нажми 👨‍👩‍👧 Семья",
                 parse_mode="Markdown"
             )
             return
