@@ -1,72 +1,173 @@
 from aiogram import Router, F
 from aiogram.types import Message
-import random, string
+import random
+import string
 from config import logger
 from database import get_user, create_family, join_family, get_pets, add_pet, get_family_stats
 
 router = Router()
 
-@router.message(F.text == "👨‍👩‍👧 Семья")
+@router.message(F.text == "👨‍👩‍ Семья")
 async def family_menu(m: Message):
-    u = await get_user(m.from_user.id)
-    if u and u.get("family_id"):
-        await m.answer("👨‍‍👧 Ты в семье!\n• `/питомцы` — показать питомцев\n• `/статистика` — рейтинг")
+    user = await get_user(m.from_user.id)
+    
+    if user and user.get("family_id"):
+        await m.answer(
+            "👨‍‍👧 *Твоя семья*\n\n"
+            "Ты уже в семье! Доступные команды:\n"
+            "• `/питомцы` — показать питомцев\n"
+            "• `/статистика` — рейтинг семьи\n"
+            "• `Создать семья [название]` — создать новую (если хочешь выйти)",
+            parse_mode="Markdown"
+        )
     else:
-        await m.answer("👨‍‍👧 *Семья*\n• `Создать семья [название]`\n• `Войти [код]`\nПример: `Создать семья Ивановы`", parse_mode="Markdown")
+        await m.answer(
+            "👨‍👧 *Семья*\n\n"
+            "Выбери действие:\n"
+            "• `Создать семья [название]` — создать новую семью\n"
+            "• `Войти [код]` — войти в существующую семью\n\n"
+            "Пример: `Создать семья Ивановы`",
+            parse_mode="Markdown"
+        )
 
 @router.message(F.text.startswith("Создать семья"))
-async def create_family_h(m: Message):
+async def create_family_handler(m: Message):
     try:
         name = m.text.replace("Создать семья ", "").strip()
-        if len(name)<2: return await m.answer("⚠️ Короткое имя")
-        code = "FAM-" + ''.join(random.choices(string.ascii_uppercase+string.digits, k=6))
-        f = await create_family(name, code)
-        await m.answer(f"✅ Семья создана!\n🔑 Код: `{code}`\nОтправь код близким.", parse_mode="Markdown")
+        
+        if len(name) < 2:
+            await m.answer("⚠️ Название слишком короткое")
+            return
+        
+        # Генерируем безопасный код
+        code = "FAM-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        
+        family = await create_family(name, code)
+        
+        await m.answer(
+            f"✅ *Семья создана!*\n\n"
+            f"Название: **{name}**\n"
+            f"🔑 Код для входа: `{code}`\n\n"
+            "Отправь этот код близким, чтобы они присоединились",
+            parse_mode="Markdown"
+        )
+        logger.info(f"👨‍👩‍ Family '{name}' created by {m.from_user.id}")
+        
     except Exception as e:
-        logger.error(f"CF err: {e}"); await m.answer("⚠️ Ошибка.")
+        logger.error(f"Create family error: {e}")
+        await m.answer("⚠️ Произошла ошибка. Попробуй позже")
 
 @router.message(F.text.startswith("Войти"))
-async def join_family_h(m: Message):
+async def join_family_handler(m: Message):
     try:
         code = m.text.replace("Войти ", "").strip().upper()
-        if not code: return await m.answer("⚠️ Укажи код")
-        f = await join_family(m.from_user.id, code)
-        await m.answer(f"✅ Ты в семье: {f['name']}" if f else "❌ Не найдена. Проверь код.")
+        
+        if not code:
+            await m.answer("⚠️ Укажи код семьи")
+            return
+        
+        family = await join_family(m.from_user.id, code)
+        
+        if family:
+            await m.answer(
+                f"✅ *Ты в семье!*\n\n"
+                f"Семья: **{family['name']}**\n"
+                f"Код: `{family['code']}`\n\n"
+                "Теперь ты можешь участвовать в семейных челленджах!",
+                parse_mode="Markdown"
+            )
+            logger.info(f"👨‍‍👧 User {m.from_user.id} joined family {family['id']}")
+        else:
+            await m.answer(
+                "❌ *Семья не найдена*\n\n"
+                "Проверь код и попробуй снова",
+                parse_mode="Markdown"
+            )
+            
     except Exception as e:
-        logger.error(f"JF err: {e}"); await m.answer("⚠️ Ошибка.")
+        logger.error(f"Join family error: {e}")
+        await m.answer("⚠️ Произошла ошибка. Попробуй позже")
 
 @router.message(F.text == "🐶 Питомцы")
-async def pets_h(m: Message):
+async def pets_handler(m: Message):
     try:
-        u = await get_user(m.from_user.id)
-        if not u or not u.get("family_id"): return await m.answer("⚠️ Сначала вступи в семью")
-        pets = await get_pets(u["family_id"])
-        await m.answer("🐾 Питомцы:\n"+"\n".join([f"• {p['name']}" for p in pets]) if pets else "🐾 Нет. Напиши: `Добавить питомца [имя]`", parse_mode="Markdown")
+        user = await get_user(m.from_user.id)
+        
+        if not user or not user.get("family_id"):
+            await m.answer(
+                "⚠️ *Сначала вступи в семью!*\n"
+                "Нажми 👨‍👧 Семья",
+                parse_mode="Markdown"
+            )
+            return
+        
+        pets = await get_pets(user["family_id"])
+        
+        if pets:
+            names = "\n".join([f"• {p['name']}" for p in pets])
+            await m.answer(
+                f"🐾 *Питомцы семьи*\n\n{names}",
+                parse_mode="Markdown"
+            )
+        else:
+            await m.answer(
+                "🐾 *Нет питомцев*\n"
+                "Напиши: `Добавить питомца [имя]`\n"
+                "Пример: `Добавить питомца Бобик`",
+                parse_mode="Markdown"
+            )
+            
     except Exception as e:
-        logger.error(f"Pets err: {e}"); await m.answer("⚠️ Ошибка.")
+        logger.error(f"Pets error: {e}")
+        await m.answer("⚠️ Произошла ошибка. Попробуй позже")
 
 @router.message(F.text.startswith("Добавить питомца"))
-async def add_pet_h(m: Message):
+async def add_pet_handler(m: Message):
     try:
-        u = await get_user(m.from_user.id)
-        if not u or not u.get("family_id"): return await m.answer("⚠️ Сначала вступи в семью")
+        user = await get_user(m.from_user.id)
+        
+        if not user or not user.get("family_id"):
+            await m.answer("⚠️ Сначала вступи в семью")
+            return
+        
         name = m.text.replace("Добавить питомца ", "").strip()
-        if len(name)<2: return await m.answer("⚠️ Короткое имя")
-        await add_pet(u["family_id"], name)
-        await m.answer(f"✅ {name} добавлен! 🐾", parse_mode="Markdown")
+        
+        if len(name) < 2:
+            await m.answer("⚠️ Имя слишком короткое")
+            return
+        
+        await add_pet(user["family_id"], name)
+        
+        await m.answer(f"✅ *{name}* добавлен в семью! 🐾", parse_mode="Markdown")
+        logger.info(f"🐾 Pet '{name}' added to family {user['family_id']}")
+        
     except Exception as e:
-        logger.error(f"AP err: {e}"); await m.answer("⚠️ Ошибка.")
+        logger.error(f"Add pet error: {e}")
+        await m.answer("⚠️ Произошла ошибка. Попробуй позже")
 
 @router.message(F.text == "📊 Статистика")
-async def stats_h(m: Message):
+async def stats_handler(m: Message):
     try:
-        u = await get_user(m.from_user.id)
-        if not u or not u.get("family_id"): return await m.answer("⚠️ Сначала вступи в семью")
-        stats = await get_family_stats(u["family_id"])
-        if not stats: return await m.answer("📊 Пока нет данных")
-        msg = "🏆 Рейтинг:\n"
+        user = await get_user(m.from_user.id)
+        
+        if not user or not user.get("family_id"):
+            await m.answer("⚠️ Сначала вступи в семью")
+            return
+        
+        stats = await get_family_stats(user["family_id"])
+        
+        if not stats:
+            await m.answer("📊 Пока нет данных")
+            return
+        
+        msg = "🏆 *Рейтинг семьи*\n\n"
         for i, s in enumerate(stats, 1):
-            msg += f"{'🥇' if i==1 else '🥈' if i==2 else '🥉' if i==3 else '•'} {i}. {s['username'] or s['telegram_id']} — {s['points']} очков\n"
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "•"
+            username = s['username'] or f"User#{s['telegram_id']}"
+            msg += f"{medal} {i}. {username} — {s['points']} очков\n"
+        
         await m.answer(msg, parse_mode="Markdown")
+        
     except Exception as e:
-        logger.error(f"Stats err: {e}"); await m.answer("⚠️ Ошибка.")
+        logger.error(f"Stats error: {e}")
+        await m.answer("⚠️ Произошла ошибка. Попробуй позже")
