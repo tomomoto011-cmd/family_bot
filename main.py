@@ -1,4 +1,7 @@
-import asyncio, logging, sys
+# main.py
+import asyncio
+import logging
+import sys
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message
@@ -16,9 +19,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+# === РЕГИСТРИРУЕМ РОУТЕРЫ (их хендлеры будут ПЕРВЫМИ) ===
 dp.include_router(psycho_r)
 dp.include_router(chal_r)
 dp.include_router(fam_r)
+
+# === ОБЩИЕ ХЕНДЛЕРЫ ===
 
 @dp.message(Command("start"))
 async def cmd_start(m: Message):
@@ -34,11 +40,7 @@ async def set_role_h(m: Message):
     await set_role(m.from_user.id, {"Родитель":"parent","Ребёнок":"child","Друг семьи":"friend"}[m.text])
     await m.answer(f"✅ Роль: {m.text}", reply_markup=main_menu())
 
-# ЛОВИЛКА ВСЕГО ОСТАЛЬНОГО (должна быть ПОСЛЕ всех роутеров)
-@dp.message()
-async def catch_all(m: Message):
-    logger.info(f"📨 Неизвестно: '{m.text}' от {m.from_user.id}")
-    await m.answer("🤔 Не понял команду. Нажми /menu")
+# === ЗАПУСК ===
 
 async def main():
     try:
@@ -52,9 +54,11 @@ async def main():
         logger.info(f"✅ Бот: @{me.username}")
         
         if ADMIN_CHAT_ID:
-            try: await bot.send_message(ADMIN_CHAT_ID, f"✅ @{me.username} запущен!")
-            except: pass
-            
+            try: 
+                await bot.send_message(ADMIN_CHAT_ID, f"✅ @{me.username} запущен!")
+            except: 
+                pass
+        
         logger.info("🤖 === ПОЛЛИНГ ===")
         await dp.start_polling(bot)
     except Exception as e:
