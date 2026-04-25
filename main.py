@@ -19,15 +19,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# === РЕГИСТРАЦИЯ РОУТЕРОВ ===
+# === ВАЖНО: Сначала подключаем роутеры (их хендлеры будут ПЕРВЫМИ) ===
 dp.include_router(psycho_r)
 dp.include_router(chal_r)
 dp.include_router(fam_r)
-
-# === ЛОГИРОВАНИЕ ВСЕХ СООБЩЕНИЙ ===
-@dp.message()
-async def log_all_messages(m: Message):
-    logger.info(f"📨 [{m.from_user.username or m.from_user.id}]: '{m.text}'")
 
 # === ОБЩИЕ ХЕНДЛЕРЫ ===
 
