@@ -1,17 +1,10 @@
-# handlers/__init__.py
+# services/__init__.py
 """
-Пакет хендлеров бота.
-Экспортирует роутеры для подключения в main.py
+Пакет сервисов: AI, внешние API, утилиты.
+НЕ импортирует ничего из handlers/ во избежание циклических импортов.
 """
 
-from . import keyboards
-from .psycho import router as psycho_router
-from .challenges import router as challenges_router
-from .family import router as family_router
+# Экспортируем только AI-роутер
+from .ai_router import generate
 
-__all__ = [
-    'keyboards',
-    'psycho_router', 
-    'challenges_router',
-    'family_router'
-]
+__all__ = ['generate']

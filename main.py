@@ -1,11 +1,11 @@
-# main.py
+# === ИМПОРТЫ ===
 import asyncio
 import logging
 import os
 import sys
 from contextlib import asynccontextmanager
 
-# FastAPI для health check
+# FastAPI
 from fastapi import FastAPI
 import uvicorn
 
@@ -15,10 +15,23 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# Наши модули
+# Наши конфиги
 from config import BOT_TOKEN, DATABASE_URL, GEMINI_API_KEY, ADMIN_CHAT_ID, logger
+
+# БД
 from database import connect, create_tables, create_user, get_pool
-from handlers import keyboards, psycho_router, challenges_router, family_router
+
+# === ПРЯМЫЕ ИМПОРТЫ (без зависимостей от __init__.py) ===
+# Клавиатуры (из handlers)
+from handlers.keyboards import main_menu, role_keyboard
+
+# Роутеры (из handlers)
+from handlers.psycho import router as psycho_router
+from handlers.challenges import router as challenges_router
+from handlers.family import router as family_router
+
+# AI сервис
+from services.ai_router import generate
 
 # === FASTAPI LIFESPAN ===
 @asynccontextmanager
