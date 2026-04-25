@@ -1,3 +1,4 @@
+# database.py
 import asyncpg
 import asyncio
 import random
@@ -24,17 +25,26 @@ async def get_pool():
 
 async def create_tables():
     async with pool.acquire() as conn:
+        # 🔧 МИГРАЦИЯ: добавляем колонки, если их нет (безопасно для существующих таблиц)
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT CHECK (role IN ('parent','teen','child','friend'));")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS family_id INT REFERENCES families(id);")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS points INT DEFAULT 0;")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS psycho_active BOOLEAN DEFAULT FALSE;")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();")
+        
+        # Создаём таблицы, если их вообще нет
         for sql in [
             """CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, telegram_id BIGINT UNIQUE, username TEXT, role TEXT CHECK(role IN('parent','teen','child','friend')), family_id INT REFERENCES families(id), points INT DEFAULT 0, psycho_active BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())""",
             """CREATE TABLE IF NOT EXISTS families (id SERIAL PRIMARY KEY, name TEXT NOT NULL, code TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT NOW())""",
-            """CREATE TABLE IF NOT EXISTS challenges (id SERIAL PRIMARY KEY, text TEXT NOT NULL, reward INT DEFAULT 10, role TEXT, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())""",
+            """CREATE TABLE IF NOT EXISTS challenges (id SERIAL PRIMARY KEY, text TEXT NOT NULL, reward INT DEFAULT 10, role TEXT, created_at TIMESTAMP DEFAULT NOW())""",
             """CREATE TABLE IF NOT EXISTS user_challenges (id SERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE, challenge_id INT REFERENCES challenges(id) ON DELETE CASCADE, completed BOOLEAN DEFAULT FALSE, completed_at TIMESTAMP, created_at TIMESTAMP DEFAULT NOW())""",
             """CREATE UNIQUE INDEX IF NOT EXISTS idx_uc_daily ON user_challenges (user_id, challenge_id, DATE(created_at))""",
             """CREATE TABLE IF NOT EXISTS pets (id SERIAL PRIMARY KEY, family_id INT REFERENCES families(id) ON DELETE CASCADE, name TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW())""",
             """CREATE TABLE IF NOT EXISTS reminders (id SERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(telegram_id) ON DELETE CASCADE, text TEXT NOT NULL, scheduled_at TIMESTAMP, is_sent BOOLEAN DEFAULT FALSE)"""
         ]:
             await conn.execute(sql)
-        logger.info("✅ Таблицы готовы")
+        logger.info("✅ Таблицы и схема актуальны")
 
 # --- USERS ---
 async def create_user(tg, uname=None):
@@ -75,8 +85,8 @@ async def get_family_stats(fid):
 
 # --- CHALLENGES ---
 async def get_random_challenge(role):
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM challenges WHERE role=$1 ORDER BY RANDOM() LIMIT 5", role)
+    async with pool.acquire() as c:
+        rows = await c.fetch("SELECT * FROM challenges WHERE role=$1 ORDER BY RANDOM() LIMIT 5", role)
         return random.choice(rows) if rows else None
 async def assign_challenge(uid, cid):
     async with pool.acquire() as c:
